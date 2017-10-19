@@ -61,11 +61,10 @@ export default class GitHubWebHookValidator
         this.apis
           .findByRepositorySshUrl(webhook.repository.ssh_url)
           .then(results => {
-            const x = results
+            resolve(results
               .reduce((accumulator, result) => accumulator.concat(result.repositories
                 .filter(repository => repository.sshUrl === webhook.repository.ssh_url)), [])
-              .some(repo => `refs/heads/${repo.branch}` === webhook.ref)
-            resolve(x)
+              .some(repo => `refs/heads/${repo.branch}` === webhook.ref))
           });
       } else {
         resolve(false);

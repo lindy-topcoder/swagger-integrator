@@ -1,5 +1,8 @@
 import express from 'express';
 import { EventEmitter } from 'events';
+import Logger from './Logger';
+
+const logger = Logger('GitHubWebhook');
 
 export const INVALID_SIGNATURE = 'GitHubWebhook.INVALID_SIGNATURE';
 export const INVALID_EVENT = 'GitHubWebhook.INVALID_EVENT';
@@ -72,6 +75,7 @@ export default class GitHubWebhook extends EventEmitter
   }
 
   sendError (response, message, event) {
+    logger.info(message);
     this.emit(event);
     response.status(400).json({message: message})
   }
