@@ -17,21 +17,25 @@ export default class GitHubWebHookValidator
         this.apis
           .findByRepositorySshUrl(webhook.repository.ssh_url)
           .then(results => {
-            results
-              .reduce((accumulator, result) => {
-                return accumulator.concat(result.repositories.filter(repository => repository.sshUrl === webhook.repository.ssh_url));
-              }, [])
-              .forEach(repo => {
-                const hmac = createHmac('sha1', repo.webhookSecret)
-                  .update(JSON.stringify(webhook))
-                  .digest('hex');
+            if (results.length === 0) {
+              resolve(false);
+            } else {
+              results
+                .reduce((accumulator, result) => {
+                  return accumulator.concat(result.repositories.filter(repository => repository.sshUrl === webhook.repository.ssh_url));
+                }, [])
+                .forEach(repo => {
+                  const hmac = createHmac('sha1', repo.webhookSecret)
+                    .update(JSON.stringify(webhook))
+                    .digest('hex');
 
-                if (signature === `sha1=${hmac}`) {
-                  resolve(true);
-                } else {
-                  resolve(false);
-                }
-              })
+                  if (signature === `sha1=${hmac}`) {
+                    resolve(true);
+                  } else {
+                    resolve(false);
+                  }
+                })
+            }
           })
       } else {
         resolve(false);

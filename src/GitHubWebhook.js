@@ -82,8 +82,8 @@ export default class GitHubWebhook extends EventEmitter
       .post('/',
         express.json(),
         this.verifyEvent(),
-        this.verifySignature(),
         this.verifySshUrl(),
+        this.verifySignature(),
         this.verifyRef(),
         this.request.bind(this));
   }
