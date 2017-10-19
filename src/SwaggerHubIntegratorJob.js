@@ -9,11 +9,9 @@ const logger = Logger('SwaggerHubIntegratorJob');
 
 export default class SwaggerHubIntegratorJob
 {
-  constructor (id, basePath, publicKey, privateKey, swaggerDocuments, combiner, swaggerHubClient, swaggerHubOwner, swaggerHubApi) {
+  constructor (id, basePath, swaggerDocuments, combiner, swaggerHubClient, swaggerHubOwner, swaggerHubApi) {
     this.id = id;
     this.basePath = basePath;
-    this.publicKey = publicKey;
-    this.privateKey = privateKey;
     this.swaggerDocuments = swaggerDocuments;
     this.combiner = combiner;
     this.swaggerHubClient = swaggerHubClient;
@@ -82,7 +80,6 @@ export default class SwaggerHubIntegratorJob
   }
 
   cloneAll () {
-
     const docs = this.swaggerDocuments.slice();
 
     const pool = new PromisePool(() => {
@@ -94,7 +91,18 @@ export default class SwaggerHubIntegratorJob
       const swaggerDocument = docs.pop();
 
       return new Promise((resolve) => {
-        const repository = new GitRepository(swaggerDocument.sshUrl, swaggerDocument.branch, this.publicKey, this.privateKey);
+
+        const repository = new GitRepository(swaggerDocument.sshUrl, swaggerDocument.branch, swaggerDocument.publicKey, swaggerDocument.privateKey);
+
+        if (!swaggerDocument.enabled) {
+          logger.info(`skipping ${swaggerDocument.sshUrl} not enabled`, {id: this.id});
+          resolve({
+            repository: repository,
+            error: 'skipping',
+          });
+          return;
+        }
+
         repository
           .clone(this.path)
           .then(() => {
@@ -115,6 +123,13 @@ export default class SwaggerHubIntegratorJob
             swaggerDocument: swaggerDocument,
             repository: result.repository,
             error: result.error
+          }
+        })
+        .catch(e => {
+          return {
+            swaggerDocument: swaggerDocument,
+            repository: null,
+            error: e
           }
         })
     }, 1);

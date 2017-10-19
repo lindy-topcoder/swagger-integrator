@@ -1,5 +1,4 @@
 import express from 'express';
-import createError from 'http-errors';
 import { EventEmitter } from 'events';
 
 export const INVALID_SIGNATURE = 'GitHubWebhook.INVALID_SIGNATURE';
@@ -16,49 +15,65 @@ export default class GitHubWebhook extends EventEmitter
     this.validator = validator;
   }
 
-  verifySignature () {
-    return (request, response, next) => {
-      if (this.validator.isSignatureValid(request.headers['x-hub-signature'], JSON.stringify(request.body))) {
-        next();
-      } else {
-        this.sendError(next, 'Invalid signature', INVALID_SIGNATURE);
-      }
-    }
-  }
-
-  verifyPushEvent () {
+  verifyEvent () {
     return (request, response, next) => {
       if (this.validator.isEventValid(request.headers['x-github-event'])) {
         next();
       } else {
-        this.sendError(next, 'Invalid event type', INVALID_EVENT);
+        this.sendError(response, 'Invalid event type', INVALID_EVENT);
       }
     }
   }
 
   verifySshUrl() {
     return (request, response, next) => {
-      if (this.validator.isRepositoryValid(request.body.repository.ssh_url)) {
-        next();
+      if (request.body && request.body.repository) {
+        this.validator
+          .isRepositoryValid(request.body)
+          .then(isValid => {
+            if (isValid) {
+              next();
+            } else {
+              this.sendError(response, 'Invalid repository', INVALID_REPOSITORY);
+            }
+          })
       } else {
-        this.sendError(next, 'Invalid repository', INVALID_REPOSITORY);
+        this.sendError(response, 'Invalid repository', INVALID_REPOSITORY);
       }
+    }
+  }
+
+  verifySignature () {
+    return (request, response, next) => {
+      this.validator
+        .isSignatureValid(request.headers['x-hub-signature'], request.body)
+        .then(isValid => {
+          if (isValid) {
+            next();
+          } else {
+            this.sendError(response, 'Invalid signature', INVALID_SIGNATURE);
+          }
+        })
     }
   }
 
   verifyRef() {
     return (request, response, next) => {
-      if (this.validator.isRefValid(request.body.ref)) {
-        next();
-      } else {
-        this.sendError(next, 'Invalid ref', INVALID_REF);
-      }
+      this.validator
+        .isRefValid(request.body)
+        .then(isValid => {
+          if (isValid) {
+            next();
+          } else {
+            this.sendError(response, 'Invalid ref', INVALID_REF);
+          }
+        })
     }
   }
 
-  sendError (next, message, event) {
+  sendError (response, message, event) {
     this.emit(event);
-    next(createError(400, new Error(message)));
+    response.status(400).json({message: message})
   }
 
   get router ()
@@ -66,8 +81,8 @@ export default class GitHubWebhook extends EventEmitter
     return express.Router()
       .post('/',
         express.json(),
+        this.verifyEvent(),
         this.verifySignature(),
-        this.verifyPushEvent(),
         this.verifySshUrl(),
         this.verifyRef(),
         this.request.bind(this));

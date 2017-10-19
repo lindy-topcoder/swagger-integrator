@@ -5,52 +5,53 @@ import GitHubWebhook, { VALID_WEBHOOK } from './GitHubWebhook';
 import GitHubWebhookValidator from './GitHubWebHookValidator';
 import SwaggerHubIntegratorJob from './SwaggerHubIntegratorJob';
 import SwaggerCombiner from './SwaggerCombiner';
+import SwaggerHubClient from "./SwaggerHubClient";
 
 export default class SwaggerHubIntegratorApi {
-  constructor (apis, gitHubWebHookSecret, gitHubPublicKey, gitHubPrivateKey, baseDirectory, swaggerHubClient) {
+  constructor (apis, baseDirectory, swaggerHubApiHost) {
     this.apis = apis;
-    this.gitHubWebHookSecret = gitHubWebHookSecret;
-    this.gitHubPublicKey = gitHubPublicKey;
-    this.gitHubPrivateKey = gitHubPrivateKey;
     this.baseDirectory = baseDirectory;
-    this.swaggerHubClient = swaggerHubClient;
+    this.swaggerHubApiHost = swaggerHubApiHost;
   }
 
   runJob (api) {
+    const swaggerHubClient = new SwaggerHubClient(this.swaggerHubApiHost, api.destination.apiKey);
     const combiner = new SwaggerCombiner(api.name, '1.0.0');
-    const job = new SwaggerHubIntegratorJob(uuid.v1(), this.baseDirectory, this.gitHubPublicKey, this.gitHubPrivateKey,
-      api.repositories, combiner, this.swaggerHubClient, api.destination.owner, api.destination.api);
+    const job = new SwaggerHubIntegratorJob(uuid.v1(), this.baseDirectory, api.repositories,
+      combiner, swaggerHubClient, api.destination.owner, api.destination.api);
 
     job.run();
   }
 
-  get router ()
-  {
-    const allRepositories = this.apis.reduce((accumulator, api) => {
-      return accumulator.concat(api.repositories)
-    }, [])
-
-    const githubWebhookValidator = new GitHubWebhookValidator(this.gitHubWebHookSecret, ['push'], allRepositories);
-    const gitHubWebhook = new GitHubWebhook(githubWebhookValidator);
-
-    gitHubWebhook.on(VALID_WEBHOOK, (data) => {
-      this.apis
-        .filter(api => api.repositories.some(repository => repository.sshUrl === data.repository.ssh_url))
-        .forEach(api => {
-          this.runJob(api);
-        })
-    })
-
-    return express.Router()
-      .use('/webhooks/github', gitHubWebhook.router)
-      .post('/apis/:id/jobs', (request, response) => {
-        const api = this.apis.find(api => api.id === request.params.id);
+  job (request, response) {
+    this.apis
+      .findById(request.params.id)
+      .then(api => {
         if (api) {
           this.runJob(api);
           response.status(200).send();
         } else {
           response.status(404).send();
         }
-      });
+      })
+      .catch(e => {
+        response.status(500).send(e);
+      })
+  }
+
+  get router ()
+  {
+    const githubWebhookValidator = new GitHubWebhookValidator(this.apis, ['push']);
+    const gitHubWebhook = new GitHubWebhook(githubWebhookValidator);
+
+    gitHubWebhook.on(VALID_WEBHOOK, (data) => {
+      this.apis
+        .findByRepositorySshUrl(data.repository.ssh_url)
+        .then(results => results.forEach(result => this.runJob(result)))
+    })
+
+    return express.Router()
+      .use('/webhooks/github', gitHubWebhook.router)
+      .post('/apis/:id/jobs', this.job.bind(this));
   }
 }

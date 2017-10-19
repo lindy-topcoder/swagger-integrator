@@ -2,40 +2,70 @@ import { createHmac } from 'crypto';
 
 export default class GitHubWebHookValidator
 {
-  constructor (secret, eventTypes, repositories) {
-    this.secret = secret;
+  constructor (apis, eventTypes) {
+    this.apis = apis;
     this.eventTypes = eventTypes;
-    this.repositories = repositories;
-  }
-
-  isValid (event, signature, payload) {
-    return this.isSignatureValid(signature, payload) &&
-      this.isEventValid(event) &&
-      this.isRepositoryValid(payload.repository.ssh_url) &&
-      this.isRefValid(payload.ref);
-  }
-
-  isSignatureValid (signature, payload) {
-    const hmac = createHmac('sha1', this.secret)
-      .update(payload)
-      .digest('hex');
-
-    return signature === `sha1=${hmac}`;
   }
 
   isEventValid (event) {
     return this.eventTypes.some(e => e === event);
   }
 
-  isRepositoryValid (sshUrl) {
-    return this.repositories.some(repository => {
-      return repository.sshUrl === sshUrl;
+  isSignatureValid (signature, webhook) {
+    return new Promise((resolve) => {
+      if (webhook && webhook.repository) {
+        this.apis
+          .findByRepositorySshUrl(webhook.repository.ssh_url)
+          .then(results => {
+            results
+              .reduce((accumulator, result) => {
+                return accumulator.concat(result.repositories.filter(repository => repository.sshUrl === webhook.repository.ssh_url));
+              }, [])
+              .forEach(repo => {
+                const hmac = createHmac('sha1', repo.webhookSecret)
+                  .update(JSON.stringify(webhook))
+                  .digest('hex');
+
+                if (signature === `sha1=${hmac}`) {
+                  resolve(true);
+                } else {
+                  resolve(false);
+                }
+              })
+          })
+      } else {
+        resolve(false);
+      }
     })
   }
 
-  isRefValid (ref) {
-    return this.repositories.some(repository => {
-      return `refs/heads/${repository.branch}` === ref;
-    })
+  isRepositoryValid (webhook) {
+    return new Promise((resolve) => {
+      if (webhook && webhook.repository) {
+        this.apis
+          .findByRepositorySshUrl(webhook.repository.ssh_url)
+          .then(results => resolve(results.length > 0));
+      } else {
+        resolve(false);
+      }
+    });
+  }
+
+  isRefValid (webhook) {
+    return new Promise((resolve) => {
+      if (webhook && webhook.repository) {
+        this.apis
+          .findByRepositorySshUrl(webhook.repository.ssh_url)
+          .then(results => {
+            const x = results
+              .reduce((accumulator, result) => accumulator.concat(result.repositories
+                .filter(repository => repository.sshUrl === webhook.repository.ssh_url)), [])
+              .some(repo => `refs/heads/${repo.branch}` === webhook.ref)
+            resolve(x)
+          });
+      } else {
+        resolve(false);
+      }
+    });
   }
 }
